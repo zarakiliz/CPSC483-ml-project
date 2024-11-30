@@ -10,7 +10,7 @@ img_size = 128 # image dimesions
 
 # initialze webcam
 cap = cv2.VideoCapture(0) # use webcam (camera index 0)
-
+ 
 if not cap.isOpened():
     print("Can't Open the Camera")
     exit()

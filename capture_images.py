@@ -1,6 +1,8 @@
 # This is a Live Image capture script tyhat captures images from the webcam,
 # organizes it into a folder for each letter and automatically saves them when you press a key
 
+
+# this file also implements data augmentation and normalization
 import cv2
 import os
 

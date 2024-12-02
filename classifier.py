@@ -1,73 +1,100 @@
 import torch
 import torch.nn as nn
 import torch.optim as optim
-from torchvision import datasets, transforms
+from torchvision import datasets, transforms, models
 from torch.utils.data import DataLoader
 
-# Define transformations
+# Define data transformations
 transform = transforms.Compose([
-    transforms.Resize((224, 224)),  # Resize images
-    transforms.ToTensor(),  # Convert images to tensors
-    transforms.Normalize([0.5, 0.5, 0.5], [0.5, 0.5, 0.5])  # Normalize
+    transforms.Resize((224, 224)),
+    transforms.RandomHorizontalFlip(),
+    transforms.RandomRotation(10),
+    transforms.ColorJitter(brightness=0.2, contrast=0.2, saturation=0.2, hue=0.1),
+    transforms.ToTensor(),
+    transforms.Normalize([0.5, 0.5, 0.5], [0.5, 0.5, 0.5])
 ])
 
-# Load train and test datasets
-train_data = datasets.ImageFolder(root='dataset/train', transform=transform)
-test_data = datasets.ImageFolder(root='dataset/test', transform=transform)
 
-# Create dataloaders
-train_dataloader = DataLoader(train_data, batch_size=32, shuffle=True)
-test_dataloader = DataLoader(test_data, batch_size=32, shuffle=False)
-
-# Define a simple model
-model = nn.Sequential(
-    nn.Flatten(),
-    nn.Linear(224 * 224 * 3, 128),  # Adjust the input size based on your image dimensions
-    nn.ReLU(),
-    nn.Linear(128, len(train_data.classes))  # Output size matches the number of classes
-)
-
-# Define loss function and optimizer
-criterion = nn.CrossEntropyLoss()
-optimizer = optim.Adam(model.parameters(), lr=0.001)
-
-# Move model to device (GPU or CPU)
-device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-model.to(device)
-
-# Training loop
-num_epochs = 10
-for epoch in range(num_epochs):
-    model.train()  # Set model to training mode
-    running_loss = 0.0
+# Define the model architecture using ResNet18
+class ResNetModel(nn.Module):
+    def __init__(self, num_classes):
+        super(ResNetModel, self).__init__()
+        # Load a pretrained ResNet18 model
+        self.resnet = models.resnet18(pretrained=True)
+        
+        # Modify the final fully connected layer to match the number of classes
+        self.resnet.fc = nn.Linear(self.resnet.fc.in_features, num_classes)
     
-    for images, labels in train_dataloader:  # Iterate through batches of data
-        images, labels = images.to(device), labels.to(device)  # Move data to device
-        
-        # Forward pass
-        outputs = model(images)
-        loss = criterion(outputs, labels)
-        
-        # Backward pass and optimization
-        optimizer.zero_grad()
-        loss.backward()
-        optimizer.step()
-        
-        running_loss += loss.item()
-    
-    print(f"Epoch [{epoch + 1}/{num_epochs}], Loss: {running_loss / len(train_dataloader):.4f}")
+    def forward(self, x):
+        return self.resnet(x)
 
-# Validation loop
-model.eval()  # Set model to evaluation mode
-correct = 0
-total = 0
-with torch.no_grad():
-    for images, labels in test_dataloader:
-        images, labels = images.to(device), labels.to(device)
-        outputs = model(images)
-        _, predicted = torch.max(outputs, 1)
-        total += labels.size(0)
-        correct += (predicted == labels).sum().item()
+# Ensure safe multiprocessing (Windows-specific)
+if __name__ == '__main__':
+    # Load datasets
+    train_data = datasets.ImageFolder(root='dataset/train', transform=transform)
+    test_data = datasets.ImageFolder(root='dataset/test', transform=transform)
 
-accuracy = 100 * correct / total
-print(f"Accuracy on test set: {accuracy:.2f}%")
+    # Create data loaders
+    train_dataloader = DataLoader(train_data, batch_size=32, shuffle=True, num_workers=2)
+    test_dataloader = DataLoader(test_data, batch_size=32, shuffle=False, num_workers=2)
+
+    # Print class mapping
+    print("Class Mapping:", train_data.class_to_idx)
+
+    # Initialize the ResNet model
+    num_classes = len(train_data.classes)
+    model = ResNetModel(num_classes)
+
+    # Move the model to the appropriate device (GPU or CPU)
+    device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+    model.to(device) 
+
+    # Define class weights (if you want to use weighted loss)
+    class_weights = torch.tensor([1.0] * num_classes).to(device) 
+
+    # Define loss function and optimizer
+    criterion = nn.CrossEntropyLoss(weight=class_weights)
+    optimizer = optim.Adam(model.parameters(), lr=0.01)
+
+
+    # Training the model
+    num_epochs = 30
+    for epoch in range(num_epochs):
+        model.train()  # Set model to training mode
+        running_loss = 0.0
+
+        for images, labels in train_dataloader:
+            images, labels = images.to(device), labels.to(device)  # Move data to device
+            
+            # Forward pass
+            outputs = model(images)
+            loss = criterion(outputs, labels)
+
+            # Backward pass and optimization
+            optimizer.zero_grad()
+            loss.backward()
+            optimizer.step()
+
+            running_loss += loss.item()
+
+        avg_loss = running_loss / len(train_dataloader)
+        print(f"Epoch [{epoch + 1}/{num_epochs}], Loss: {avg_loss:.4f}")
+
+    # Evaluating the model
+    model.eval()  # Set model to evaluation mode
+    correct = 0
+    total = 0
+    with torch.no_grad():
+        for images, labels in test_dataloader:
+            images, labels = images.to(device), labels.to(device)
+            outputs = model(images)
+            _, predicted = torch.max(outputs, 1)
+            total += labels.size(0)
+            correct += (predicted == labels).sum().item()
+
+    accuracy = 100 * correct / total
+    print(f"Accuracy on test set: {accuracy:.2f}%")
+
+    # Save the trained model
+    torch.save(model.state_dict(), './resnet_model.pth')
+    print("Model saved as resnet_model.pth")

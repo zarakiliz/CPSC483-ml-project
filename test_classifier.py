@@ -63,12 +63,23 @@ while True:
         # Predict gesture using the CNN
         with torch.no_grad():
             prediction = model(frame_tensor)
-        predicted_class = torch.argmax(prediction, dim=1).item()
+        top_k = torch.topk(torch.nn.functional.softmax(prediction, dim=1), k=3)
+        top_k_indices = top_k.indices.cpu().numpy().flatten()
+        top_k_scores = top_k.values.cpu().numpy().flatten()
 
-        # Display the predicted label on the frame
+        predicted_class = top_k_indices[0]
         predicted_label = labels_dict[predicted_class]
-        cv2.putText(frame, f"Prediction: {predicted_label}", (20, 40),
+        confidence_score = top_k_scores[0]
+
+        # Display the top-1 prediction
+        cv2.putText(frame, f"Prediction: {predicted_label} ({confidence_score:.2f})", (20, 40),
                     cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 0), 2, cv2.LINE_AA)
+
+        # Display top-k predictions
+        for i, (cls, score) in enumerate(zip(top_k_indices, top_k_scores)):
+            label = labels_dict[cls]
+            cv2.putText(frame, f"{label}: {score:.2f}", (20, 70 + i * 30),
+                        cv2.FONT_HERSHEY_SIMPLEX, 0.8, (255, 255, 255), 1, cv2.LINE_AA)
 
     except Exception as e:
         print(f"Error during prediction: {e}")

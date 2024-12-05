@@ -3,6 +3,10 @@ import torch.nn as nn
 import torch.optim as optim
 from torchvision import datasets, transforms, models
 from torch.utils.data import DataLoader
+from sklearn.metrics import confusion_matrix, classification_report
+import matplotlib.pyplot as plt
+import seaborn as sns
+import numpy as np
 
 # Define data transformations
 transform = transforms.Compose([
@@ -13,7 +17,6 @@ transform = transforms.Compose([
     transforms.ToTensor(),
     transforms.Normalize([0.5, 0.5, 0.5], [0.5, 0.5, 0.5])
 ])
-
 
 # Define the model architecture using ResNet18
 class ResNetModel(nn.Module):
@@ -27,6 +30,24 @@ class ResNetModel(nn.Module):
     
     def forward(self, x):
         return self.resnet(x)
+
+# Function to plot confusion matrix
+def plot_confusion_matrix(y_true, y_pred, class_names):
+    cm = confusion_matrix(y_true, y_pred)
+    plt.figure(figsize=(10, 8))
+    sns.heatmap(cm, annot=True, fmt="d", cmap="Blues", xticklabels=class_names, yticklabels=class_names)
+    plt.title("Confusion Matrix")
+    plt.xlabel("Predicted Label")
+    plt.ylabel("True Label")
+    plt.show()
+
+# Function to plot classification report
+def plot_classification_report(report_text):
+    plt.figure(figsize=(10, 6))
+    plt.text(0.01, 0.05, str(report_text), {'fontsize': 12}, fontproperties='monospace') 
+    plt.axis('off')
+    plt.title("Classification Report")
+    plt.show()
 
 # Ensure safe multiprocessing (Windows-specific)
 if __name__ == '__main__':
@@ -56,9 +77,13 @@ if __name__ == '__main__':
     criterion = nn.CrossEntropyLoss(weight=class_weights)
     optimizer = optim.Adam(model.parameters(), lr=0.01)
 
+    # Visualization of the model architecture
+    dummy_input = torch.randn(1, 3, 224, 224).to(device)  # Dummy input for visualization
+    torch.onnx.export(model, dummy_input, "resnet18.onnx", verbose=True)
+    print("Model exported to resnet18.onnx")
 
     # Training the model
-    num_epochs = 30
+    num_epochs = 40
     for epoch in range(num_epochs):
         model.train()  # Set model to training mode
         running_loss = 0.0
@@ -84,11 +109,19 @@ if __name__ == '__main__':
     model.eval()  # Set model to evaluation mode
     correct = 0
     total = 0
+    all_labels = []
+    all_predictions = []
+
     with torch.no_grad():
         for images, labels in test_dataloader:
             images, labels = images.to(device), labels.to(device)
             outputs = model(images)
             _, predicted = torch.max(outputs, 1)
+            
+            # Store predictions and true labels
+            all_labels.extend(labels.cpu().numpy())
+            all_predictions.extend(predicted.cpu().numpy())
+
             total += labels.size(0)
             correct += (predicted == labels).sum().item()
 
@@ -98,3 +131,12 @@ if __name__ == '__main__':
     # Save the trained model
     torch.save(model.state_dict(), './resnet_model.pth')
     print("Model saved as resnet_model.pth")
+
+    # Generate and visualize the confusion matrix
+    class_names = train_data.classes
+    plot_confusion_matrix(all_labels, all_predictions, class_names)
+
+    # Generate and visualize the classification report
+    report = classification_report(all_labels, all_predictions, target_names=class_names)
+    print(report)
+    plot_classification_report(report)
